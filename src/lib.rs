@@ -1,8 +1,5 @@
 use std::{borrow::Cow, convert::TryFrom, fmt};
 
-#[cfg(feature = "serde")]
-use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
-
 const COMMENT_PREFIX: &str = "#";
 const ASSIGNMENT_OPERATOR: &str = "=";
 
@@ -17,27 +14,6 @@ impl<'a> fmt::Display for EnvFile<'a> {
       write!(f, "{}", entry)?;
     }
     Ok(())
-  }
-}
-
-#[cfg(feature = "serde")]
-impl<'a> Serialize for EnvFile<'a> {
-  fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-  where
-    S: Serializer,
-  {
-    serializer.serialize_str(&self.to_string())
-  }
-}
-
-#[cfg(feature = "serde")]
-impl<'de: 'a, 'a> Deserialize<'de> for EnvFile<'a> {
-  fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-  where
-    D: Deserializer<'de>,
-  {
-    let s = <&'de str>::deserialize(deserializer)?;
-    s.try_into().map_err(de::Error::custom)
   }
 }
 
@@ -113,27 +89,6 @@ impl<'a> TryFrom<&'a str> for EnvEntry<'a> {
   }
 }
 
-#[cfg(feature = "serde")]
-impl<'a> Serialize for EnvEntry<'a> {
-  fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-  where
-    S: Serializer,
-  {
-    serializer.serialize_str(&self.to_string())
-  }
-}
-
-#[cfg(feature = "serde")]
-impl<'de: 'a, 'a> Deserialize<'de> for EnvEntry<'a> {
-  fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-  where
-    D: Deserializer<'de>,
-  {
-    let s = <&'de str>::deserialize(deserializer)?;
-    s.try_into().map_err(de::Error::custom)
-  }
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct EnvVariable<'a> {
   pub key: Cow<'a, str>,
@@ -178,27 +133,6 @@ impl<'a> TryFrom<&'a str> for EnvVariable<'a> {
     } else {
       Err(ParseError::InvalidLine(s.to_string()))
     }
-  }
-}
-
-#[cfg(feature = "serde")]
-impl<'a> Serialize for EnvVariable<'a> {
-  fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-  where
-    S: Serializer,
-  {
-    serializer.serialize_str(&self.to_string())
-  }
-}
-
-#[cfg(feature = "serde")]
-impl<'de: 'a, 'a> Deserialize<'de> for EnvVariable<'a> {
-  fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-  where
-    D: Deserializer<'de>,
-  {
-    let s = <&'de str>::deserialize(deserializer)?;
-    s.try_into().map_err(de::Error::custom)
   }
 }
 
