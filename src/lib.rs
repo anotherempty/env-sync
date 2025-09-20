@@ -3,6 +3,9 @@ use std::{borrow::Cow, fmt, str::FromStr};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
 
+const COMMENT_PREFIX: &str = "#";
+const ASSIGNMENT_OPERATOR: &str = "=";
+
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct EnvFile<'a> {
   pub entries: Vec<EnvEntry<'a>>,
@@ -102,7 +105,7 @@ impl<'a> FromStr for EnvEntry<'a> {
 
     if trimmed.is_empty() {
       Ok(EnvEntry::EmptyLine)
-    } else if trimmed.starts_with('#') {
+    } else if trimmed.starts_with(COMMENT_PREFIX) {
       Ok(EnvEntry::OrphanComment(Cow::Owned(trimmed.to_string())))
     } else {
       Ok(EnvEntry::Variable(trimmed.parse()?))
@@ -144,9 +147,9 @@ impl<'a> fmt::Display for EnvVariable<'a> {
     for comment in &self.preceding_comments {
       writeln!(f, "{}", comment)?;
     }
-    write!(f, "{}={}", self.key, self.value)?;
+    write!(f, "{}{}{}", self.key, ASSIGNMENT_OPERATOR, self.value)?;
     if let Some(comment) = &self.inline_comment {
-      write!(f, " {}", comment)?;
+      write!(f, " {COMMENT_PREFIX}{}", comment)?;
     }
     Ok(())
   }
@@ -156,17 +159,15 @@ impl<'a> FromStr for EnvVariable<'a> {
   type Err = ParseError;
 
   fn from_str(s: &str) -> Result<Self, Self::Err> {
-    if let Some(eq_pos) = s.find('=') {
-      let key = s[..eq_pos].trim();
-      let value_part = &s[eq_pos + 1..];
+    if let Some((key, value_part)) = s.split_once(ASSIGNMENT_OPERATOR) {
+      let key = key.trim();
 
-      let (value, inline_comment) = if let Some(hash_pos) = value_part.find('#') {
-        let value = value_part[..hash_pos].trim();
-        let comment = value_part[hash_pos..].trim();
-        (value, Some(Cow::Owned(comment.to_string())))
-      } else {
-        (value_part.trim(), None)
-      };
+      let (value, inline_comment) =
+        if let Some((value, comment)) = value_part.split_once(COMMENT_PREFIX) {
+          (value.trim(), Some(Cow::Owned(comment.to_string())))
+        } else {
+          (value_part.trim(), None)
+        };
 
       Ok(EnvVariable {
         key: Cow::Owned(key.to_string()),
@@ -275,7 +276,7 @@ mod tests {
       EnvEntry::Variable(var) => {
         assert_eq!(var.key, "KEY");
         assert_eq!(var.value, "value");
-        assert_eq!(var.inline_comment, Some(Cow::Borrowed("# This is inline")));
+        assert_eq!(var.inline_comment, Some(Cow::Borrowed(" This is inline")));
       }
       _ => panic!("Expected variable"),
     }
@@ -323,10 +324,7 @@ mod tests {
       EnvEntry::Variable(var) => {
         assert_eq!(var.key, "KEY");
         assert_eq!(var.value, "value");
-        assert_eq!(
-          var.inline_comment,
-          Some(Cow::Owned("# comment".to_string()))
-        );
+        assert_eq!(var.inline_comment, Some(Cow::Owned(" comment".to_string())));
       }
       _ => panic!("Expected Variable"),
     }
