@@ -2,8 +2,12 @@
 name = "env-sync"
 version = "0.1.0"
 edition = "2024"
+description = "Easily update your local env file with a git-trackable file"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/anotherempty/env-sync"
+documentation = "https://docs.rs/env-sync"
+readme = "README.md"
+categories = ["command-line-utilities", "config", "development-tools"]
 
 [lib]
 name = "env_sync"
