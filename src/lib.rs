@@ -1,7 +1,7 @@
 use std::{borrow::Cow, fmt, str::FromStr};
 
 #[cfg(feature = "serde")]
-use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
+use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 
 const COMMENT_PREFIX: &str = "#";
 const ASSIGNMENT_OPERATOR: &str = "=";
@@ -76,7 +76,7 @@ impl<'a> FromStr for EnvFile<'a> {
 #[derive(Debug, Clone, PartialEq)]
 pub enum EnvEntry<'a> {
   Variable(EnvVariable<'a>),
-  OrphanComment(Cow<'a, str>),
+  OrphanComment(EnvComment<'a>),
   EmptyLine,
 }
 
@@ -106,7 +106,7 @@ impl<'a> FromStr for EnvEntry<'a> {
     if trimmed.is_empty() {
       Ok(EnvEntry::EmptyLine)
     } else if trimmed.starts_with(COMMENT_PREFIX) {
-      Ok(EnvEntry::OrphanComment(Cow::Owned(trimmed.to_string())))
+      Ok(EnvEntry::OrphanComment(trimmed.parse()?))
     } else {
       Ok(EnvEntry::Variable(trimmed.parse()?))
     }
@@ -138,8 +138,8 @@ impl<'de: 'a, 'a> Deserialize<'de> for EnvEntry<'a> {
 pub struct EnvVariable<'a> {
   pub key: Cow<'a, str>,
   pub value: Cow<'a, str>,
-  pub preceding_comments: Vec<Cow<'a, str>>,
-  pub inline_comment: Option<Cow<'a, str>>,
+  pub preceding_comments: Vec<EnvComment<'a>>,
+  pub inline_comment: Option<EnvComment<'a>>,
 }
 
 impl<'a> fmt::Display for EnvVariable<'a> {
@@ -149,7 +149,7 @@ impl<'a> fmt::Display for EnvVariable<'a> {
     }
     write!(f, "{}{}{}", self.key, ASSIGNMENT_OPERATOR, self.value)?;
     if let Some(comment) = &self.inline_comment {
-      write!(f, " {COMMENT_PREFIX}{}", comment)?;
+      write!(f, " {}", comment)?;
     }
     Ok(())
   }
@@ -164,7 +164,10 @@ impl<'a> FromStr for EnvVariable<'a> {
 
       let (value, inline_comment) =
         if let Some((value, comment)) = value_part.split_once(COMMENT_PREFIX) {
-          (value.trim(), Some(Cow::Owned(comment.to_string())))
+          (
+            value.trim(),
+            Some(EnvComment(Cow::Owned(comment.to_string()))),
+          )
         } else {
           (value_part.trim(), None)
         };
@@ -199,6 +202,28 @@ impl<'de: 'a, 'a> Deserialize<'de> for EnvVariable<'a> {
   {
     let s = <&'de str>::deserialize(deserializer)?;
     s.parse().map_err(de::Error::custom)
+  }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct EnvComment<'a>(Cow<'a, str>);
+
+impl<'a> fmt::Display for EnvComment<'a> {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    write!(f, "{}{}", COMMENT_PREFIX, self.0)
+  }
+}
+
+impl<'a> FromStr for EnvComment<'a> {
+  type Err = ParseError;
+
+  fn from_str(s: &str) -> Result<Self, Self::Err> {
+    let trimmed = s.trim();
+    if let Some(content) = trimmed.strip_prefix(COMMENT_PREFIX) {
+      Ok(EnvComment(Cow::Owned(content.to_string())))
+    } else {
+      Err(ParseError::InvalidLine(s.to_string()))
+    }
   }
 }
 
@@ -247,7 +272,7 @@ mod tests {
         assert_eq!(var.key, "KEY");
         assert_eq!(var.value, "value");
         assert_eq!(var.preceding_comments.len(), 1);
-        assert_eq!(var.preceding_comments[0], "# This is a comment");
+        assert_eq!(var.preceding_comments[0].to_string(), "# This is a comment");
       }
       _ => panic!("Expected variable"),
     }
@@ -258,8 +283,8 @@ mod tests {
         assert_eq!(var.key, "TEST");
         assert_eq!(var.value, "123");
         assert_eq!(var.preceding_comments.len(), 2);
-        assert_eq!(var.preceding_comments[0], "# Another comment");
-        assert_eq!(var.preceding_comments[1], "# Multi line");
+        assert_eq!(var.preceding_comments[0].to_string(), "# Another comment");
+        assert_eq!(var.preceding_comments[1].to_string(), "# Multi line");
       }
       _ => panic!("Expected variable"),
     }
@@ -276,7 +301,10 @@ mod tests {
       EnvEntry::Variable(var) => {
         assert_eq!(var.key, "KEY");
         assert_eq!(var.value, "value");
-        assert_eq!(var.inline_comment, Some(Cow::Borrowed(" This is inline")));
+        assert_eq!(
+          var.inline_comment,
+          Some(EnvComment(Cow::Owned(" This is inline".to_string())))
+        );
       }
       _ => panic!("Expected variable"),
     }
@@ -302,7 +330,10 @@ mod tests {
     // Test comment
     let entry: EnvEntry = "# This is a comment".parse().unwrap();
     match entry {
-      EnvEntry::OrphanComment(comment) => assert_eq!(comment, "# This is a comment"),
+      EnvEntry::OrphanComment(comment) => assert_eq!(
+        comment,
+        EnvComment(Cow::Owned(" This is a comment".to_string()))
+      ),
       _ => panic!("Expected OrphanComment"),
     }
 
@@ -324,7 +355,10 @@ mod tests {
       EnvEntry::Variable(var) => {
         assert_eq!(var.key, "KEY");
         assert_eq!(var.value, "value");
-        assert_eq!(var.inline_comment, Some(Cow::Owned(" comment".to_string())));
+        assert_eq!(
+          var.inline_comment,
+          Some(EnvComment(Cow::Owned(" comment".to_string())))
+        );
       }
       _ => panic!("Expected Variable"),
     }
