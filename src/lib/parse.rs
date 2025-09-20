@@ -89,22 +89,11 @@ impl<'a> EnvFile<'a> {
   }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum EnvEntry<'a> {
   Variable(EnvVariable<'a>),
   OrphanComment(EnvComment<'a>),
   EmptyLine,
-}
-
-impl<'a> PartialEq for EnvEntry<'a> {
-  fn eq(&self, other: &Self) -> bool {
-    match (self, other) {
-      (EnvEntry::Variable(a), EnvEntry::Variable(b)) => a.key == b.key,
-      (EnvEntry::OrphanComment(a), EnvEntry::OrphanComment(b)) => a == b,
-      (EnvEntry::EmptyLine, EnvEntry::EmptyLine) => true,
-      _ => false,
-    }
-  }
 }
 
 impl<'a> fmt::Display for EnvEntry<'a> {
