@@ -70,29 +70,6 @@ impl<'a> FromStr for EnvFile<'a> {
   }
 }
 
-impl<'a> EnvFile<'a> {
-  pub fn set(&mut self, key: &str, value: String) -> Option<Cow<'a, str>> {
-    for entry in &mut self.entries {
-      if let EnvEntry::Variable(var) = entry
-        && var.key == key
-      {
-        let old_value = var.value.clone();
-        var.value = Cow::Owned(value);
-        return Some(old_value);
-      }
-    }
-
-    self.entries.push(EnvEntry::Variable(EnvVariable {
-      key: Cow::Owned(key.to_string()),
-      value: Cow::Owned(value),
-      preceding_comments: Vec::new(),
-      inline_comment: None,
-    }));
-
-    None
-  }
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum EnvEntry<'a> {
   Variable(EnvVariable<'a>),
