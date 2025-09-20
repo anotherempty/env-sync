@@ -1,7 +1,7 @@
 use std::{borrow::Cow, fmt, str::FromStr};
 
 #[cfg(feature = "serde")]
-use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
 
 const COMMENT_PREFIX: &str = "#";
 const ASSIGNMENT_OPERATOR: &str = "=";
@@ -365,5 +365,30 @@ mod tests {
 
     // Test invalid line
     assert!("invalid line without equals".parse::<EnvEntry>().is_err());
+  }
+
+  #[test]
+  fn test_key_without_value() {
+    // Test key with equals but no value
+    let entry: EnvEntry = "KEY=".parse().unwrap();
+    match entry {
+      EnvEntry::Variable(var) => {
+        assert_eq!(var.key, "KEY");
+        assert_eq!(var.value, "");
+        assert!(var.inline_comment.is_none());
+      }
+      _ => panic!("Expected Variable"),
+    }
+
+    // Test key with equals and whitespace
+    let entry: EnvEntry = "KEY=   ".parse().unwrap();
+    match entry {
+      EnvEntry::Variable(var) => {
+        assert_eq!(var.key, "KEY");
+        assert_eq!(var.value, "");
+        assert!(var.inline_comment.is_none());
+      }
+      _ => panic!("Expected Variable"),
+    }
   }
 }
