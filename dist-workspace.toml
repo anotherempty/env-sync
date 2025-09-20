@@ -19,3 +19,4 @@ targets = [
 ]
 features = ["tracing"]
 plan-jobs = ["./check"]
+publish-jobs = ["./crates-io"]
