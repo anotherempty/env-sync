@@ -1,3 +1,33 @@
+//! Environment file synchronization functionality.
+//!
+//! This module provides functionality to synchronize local environment files
+//! with template files, preserving local values and comments while adopting
+//! the template structure.
+//!
+//! # Sync Logic
+//!
+//! The sync process:
+//! 1. Takes the template file as the base structure
+//! 2. For each variable in the template:
+//!    - If template value is empty and local has a value, use local value
+//!    - If template has no inline comment but local does, copy local comment
+//!    - If template has no preceding comments but local does, copy local comments
+//! 3. Writes the result back to the local file
+//!
+//! # Examples
+//!
+//! ```
+//! use env_sync::sync::{EnvSync, EnvSyncOptions};
+//! use std::path::PathBuf;
+//!
+//! let options = EnvSyncOptions {
+//!     local_file: Some(PathBuf::from(".env")),
+//!     template_file: PathBuf::from(".env.template"),
+//! };
+//!
+//! EnvSync::sync_with_options(options).unwrap();
+//! ```
+
 use std::path::{Path, PathBuf};
 
 #[cfg(feature = "tracing")]
@@ -7,9 +37,13 @@ use crate::parse::{EnvEntry, EnvFile, ParseError};
 
 const DEFAULT_LOCAL_FILENAME: &str = ".env";
 
+/// Main synchronization service for environment files.
 pub struct EnvSync;
 
 impl EnvSync {
+  /// Synchronizes environment files using the provided options.
+  ///
+  /// Creates missing files if they don't exist, then performs the sync operation.
   pub fn sync_with_options(options: EnvSyncOptions) -> Result<(), EnvSyncError> {
     #[cfg(feature = "tracing")]
     info!("Starting env sync");
@@ -60,6 +94,9 @@ impl EnvSync {
     Self::update_local(synced, local_path)
   }
 
+  /// Performs the core synchronization logic between local and template files.
+  ///
+  /// Takes the template as the base structure and enriches it with local values and comments.
   fn sync<'a>(local: EnvFile<'a>, mut template: EnvFile<'a>) -> Result<EnvFile<'a>, EnvSyncError> {
     #[cfg(feature = "tracing")]
     debug!(
@@ -107,6 +144,7 @@ impl EnvSync {
     Ok(template)
   }
 
+  /// Writes the synchronized content back to the local file.
   fn update_local<P: AsRef<Path>>(local: EnvFile, local_path: P) -> Result<(), EnvSyncError> {
     #[cfg(feature = "tracing")]
     debug!("Writing synced content to {:?}", local_path.as_ref());
@@ -121,26 +159,37 @@ impl EnvSync {
   }
 }
 
+/// Errors that can occur during environment file synchronization.
 #[derive(Debug, thiserror::Error)]
 pub enum EnvSyncError {
+  /// Error reading the local environment file
   #[error("Local file IO error: {0}")]
   LocalIo(std::io::Error),
+  /// Error parsing the local environment file
   #[error("Local file parse error: {0}")]
   LocalParse(ParseError),
+  /// Error reading the template file
   #[error("Template file IO error: {0}")]
   TemplateIo(std::io::Error),
+  /// Error parsing the template file
   #[error("Template file parse error: {0}")]
   TemplateParse(ParseError),
+  /// Error writing the synchronized content
   #[error("Write error: {0}")]
   Write(std::io::Error),
+  /// Error creating the local file
   #[error("Failed to create local file: {0}")]
   CreateLocal(std::io::Error),
+  /// Error creating the template file
   #[error("Failed to create template file: {0}")]
   CreateTemplate(std::io::Error),
 }
 
+/// Configuration options for environment file synchronization.
 pub struct EnvSyncOptions {
+  /// Path to the local environment file. If None, defaults to `.env` in current directory.
   pub local_file: Option<PathBuf>,
+  /// Path to the template file that defines the desired structure.
   pub template_file: PathBuf,
 }
 
