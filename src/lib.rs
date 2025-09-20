@@ -1,5 +1,6 @@
 use std::{borrow::Cow, fmt, str::FromStr};
 
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -16,6 +17,7 @@ impl<'a> fmt::Display for EnvFile<'a> {
   }
 }
 
+#[cfg(feature = "serde")]
 impl<'a> Serialize for EnvFile<'a> {
   fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
   where
@@ -25,6 +27,7 @@ impl<'a> Serialize for EnvFile<'a> {
   }
 }
 
+#[cfg(feature = "serde")]
 impl<'de: 'a, 'a> Deserialize<'de> for EnvFile<'a> {
   fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
   where
@@ -43,46 +46,20 @@ impl<'a> FromStr for EnvFile<'a> {
     let mut pending_comments = Vec::new();
 
     for line in s.lines() {
-      let trimmed = line.trim();
+      let mut entry: EnvEntry = line.parse()?;
 
-      if trimmed.is_empty() {
-        if !pending_comments.is_empty() {
-          for comment in pending_comments.drain(..) {
-            entries.push(EnvEntry::OrphanComment(comment));
-          }
+      if let EnvEntry::Variable(ref mut var) = entry {
+        var.preceding_comments = std::mem::take(&mut pending_comments);
+      } else if let EnvEntry::OrphanComment(comment) = entry {
+        pending_comments.push(comment);
+        continue;
+      } else if matches!(entry, EnvEntry::EmptyLine) && !pending_comments.is_empty() {
+        for comment in pending_comments.drain(..) {
+          entries.push(EnvEntry::OrphanComment(comment));
         }
-        entries.push(EnvEntry::EmptyLine);
-        continue;
       }
 
-      if trimmed.starts_with('#') {
-        pending_comments.push(Cow::Owned(trimmed.to_string()));
-        continue;
-      }
-
-      if let Some(eq_pos) = line.find('=') {
-        let key = line[..eq_pos].trim();
-        let value_part = &line[eq_pos + 1..];
-
-        let (value, inline_comment) = if let Some(hash_pos) = value_part.find('#') {
-          let value = value_part[..hash_pos].trim();
-          let comment = value_part[hash_pos..].trim();
-          (value, Some(Cow::Owned(comment.to_string())))
-        } else {
-          (value_part.trim(), None)
-        };
-
-        let variable = EnvVariable {
-          key: Cow::Owned(key.to_string()),
-          value: Cow::Owned(value.to_string()),
-          preceding_comments: std::mem::take(&mut pending_comments),
-          inline_comment,
-        };
-
-        entries.push(EnvEntry::Variable(variable));
-      } else {
-        return Err(ParseError::InvalidLine(line.to_string()));
-      }
+      entries.push(entry);
     }
 
     for comment in pending_comments {
@@ -116,10 +93,10 @@ impl<'a> EnvFile<'a> {
   }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum EnvEntry<'a> {
-  Variable(#[serde(borrow)] EnvVariable<'a>),
-  OrphanComment(#[serde(borrow)] Cow<'a, str>),
+  Variable(EnvVariable<'a>),
+  OrphanComment(Cow<'a, str>),
   EmptyLine,
 }
 
@@ -127,13 +104,7 @@ impl<'a> fmt::Display for EnvEntry<'a> {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     match self {
       EnvEntry::Variable(var) => {
-        for comment in &var.preceding_comments {
-          writeln!(f, "{}", comment)?;
-        }
-        write!(f, "{}={}", var.key, var.value)?;
-        if let Some(comment) = &var.inline_comment {
-          write!(f, " {}", comment)?;
-        }
+        write!(f, "{}", var)?;
         writeln!(f)
       }
       EnvEntry::OrphanComment(comment) => {
@@ -156,7 +127,59 @@ impl<'a> FromStr for EnvEntry<'a> {
       Ok(EnvEntry::EmptyLine)
     } else if trimmed.starts_with('#') {
       Ok(EnvEntry::OrphanComment(Cow::Owned(trimmed.to_string())))
-    } else if let Some(eq_pos) = s.find('=') {
+    } else {
+      Ok(EnvEntry::Variable(trimmed.parse()?))
+    }
+  }
+}
+
+#[cfg(feature = "serde")]
+impl<'a> Serialize for EnvEntry<'a> {
+  fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+  where
+    S: Serializer,
+  {
+    serializer.serialize_str(&self.to_string())
+  }
+}
+
+#[cfg(feature = "serde")]
+impl<'de: 'a, 'a> Deserialize<'de> for EnvEntry<'a> {
+  fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+  where
+    D: Deserializer<'de>,
+  {
+    let s = <&'de str>::deserialize(deserializer)?;
+    s.parse().map_err(de::Error::custom)
+  }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct EnvVariable<'a> {
+  pub key: Cow<'a, str>,
+  pub value: Cow<'a, str>,
+  pub preceding_comments: Vec<Cow<'a, str>>,
+  pub inline_comment: Option<Cow<'a, str>>,
+}
+
+impl<'a> fmt::Display for EnvVariable<'a> {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    for comment in &self.preceding_comments {
+      writeln!(f, "{}", comment)?;
+    }
+    write!(f, "{}={}", self.key, self.value)?;
+    if let Some(comment) = &self.inline_comment {
+      write!(f, " {}", comment)?;
+    }
+    Ok(())
+  }
+}
+
+impl<'a> FromStr for EnvVariable<'a> {
+  type Err = ParseError;
+
+  fn from_str(s: &str) -> Result<Self, Self::Err> {
+    if let Some(eq_pos) = s.find('=') {
       let key = s[..eq_pos].trim();
       let value_part = &s[eq_pos + 1..];
 
@@ -168,28 +191,37 @@ impl<'a> FromStr for EnvEntry<'a> {
         (value_part.trim(), None)
       };
 
-      Ok(EnvEntry::Variable(EnvVariable {
+      Ok(EnvVariable {
         key: Cow::Owned(key.to_string()),
         value: Cow::Owned(value.to_string()),
         preceding_comments: Vec::new(),
         inline_comment,
-      }))
+      })
     } else {
       Err(ParseError::InvalidLine(s.to_string()))
     }
   }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct EnvVariable<'a> {
-  #[serde(borrow)]
-  pub key: Cow<'a, str>,
-  #[serde(borrow)]
-  pub value: Cow<'a, str>,
-  #[serde(borrow)]
-  pub preceding_comments: Vec<Cow<'a, str>>,
-  #[serde(borrow)]
-  pub inline_comment: Option<Cow<'a, str>>,
+#[cfg(feature = "serde")]
+impl<'a> Serialize for EnvVariable<'a> {
+  fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+  where
+    S: Serializer,
+  {
+    serializer.serialize_str(&self.to_string())
+  }
+}
+
+#[cfg(feature = "serde")]
+impl<'de: 'a, 'a> Deserialize<'de> for EnvVariable<'a> {
+  fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+  where
+    D: Deserializer<'de>,
+  {
+    let s = <&'de str>::deserialize(deserializer)?;
+    s.parse().map_err(de::Error::custom)
+  }
 }
 
 #[derive(Debug, thiserror::Error)]
