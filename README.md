@@ -1,5 +1,7 @@
 # env-sync
 
+[![Crates.io Version](https://img.shields.io/crates/v/env-sync)](https://crates.io/crates/env-sync) ![Crates.io Size (version)](https://img.shields.io/crates/size/env-sync/0.1.0) [![docs.rs](https://img.shields.io/docsrs/env-sync)](https://docs.rs/env-sync)
+
 A Rust CLI tool and library for synchronizing an environment file with a template file while preserving local customizations and comments.
 
 ## Purpose
