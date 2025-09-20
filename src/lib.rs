@@ -1,7 +1,6 @@
+use std::{borrow::Cow, fmt, str::FromStr};
+
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
-use std::borrow::Cow;
-use std::fmt;
-use std::str::FromStr;
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct EnvFile<'a> {
