@@ -11,24 +11,7 @@ pub struct EnvFile<'a> {
 impl<'a> fmt::Display for EnvFile<'a> {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     for entry in &self.entries {
-      match entry {
-        EnvEntry::Variable(var) => {
-          for comment in &var.preceding_comments {
-            writeln!(f, "{}", comment)?;
-          }
-          write!(f, "{}={}", var.key, var.value)?;
-          if let Some(comment) = &var.inline_comment {
-            write!(f, " {}", comment)?;
-          }
-          writeln!(f)?;
-        }
-        EnvEntry::OrphanComment(comment) => {
-          writeln!(f, "{}", comment)?;
-        }
-        EnvEntry::EmptyLine => {
-          writeln!(f)?;
-        }
-      }
+      write!(f, "{}", entry)?;
     }
     Ok(())
   }
@@ -139,6 +122,29 @@ pub enum EnvEntry<'a> {
   Variable(#[serde(borrow)] EnvVariable<'a>),
   OrphanComment(#[serde(borrow)] Cow<'a, str>),
   EmptyLine,
+}
+
+impl<'a> fmt::Display for EnvEntry<'a> {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    match self {
+      EnvEntry::Variable(var) => {
+        for comment in &var.preceding_comments {
+          writeln!(f, "{}", comment)?;
+        }
+        write!(f, "{}={}", var.key, var.value)?;
+        if let Some(comment) = &var.inline_comment {
+          write!(f, " {}", comment)?;
+        }
+        writeln!(f)
+      }
+      EnvEntry::OrphanComment(comment) => {
+        writeln!(f, "{}", comment)
+      }
+      EnvEntry::EmptyLine => {
+        writeln!(f)
+      }
+    }
+  }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
