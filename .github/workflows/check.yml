@@ -1,10 +1,12 @@
 name: Check
 
 on:
+  pull_request:
+    branches: [ main ]
   workflow_call:
     inputs:
       plan:
-        required: true
+        required: false
         type: string
 
 jobs:
