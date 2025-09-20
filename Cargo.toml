@@ -3,5 +3,9 @@ name = "env-sync"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+name = "env_sync"
+path = "src/lib/mod.rs"
+
 [dependencies]
 thiserror = "2.0.16"
