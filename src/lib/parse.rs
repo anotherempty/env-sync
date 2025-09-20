@@ -1,5 +1,8 @@
 use std::{borrow::Cow, convert::TryFrom, fmt};
 
+#[cfg(feature = "tracing")]
+use tracing::{debug, trace};
+
 const COMMENT_PREFIX: &str = "#";
 const ASSIGNMENT_OPERATOR: &str = "=";
 
@@ -21,18 +24,40 @@ impl<'a> TryFrom<&'a str> for EnvFile<'a> {
   type Error = ParseError;
 
   fn try_from(s: &'a str) -> Result<Self, Self::Error> {
+    #[cfg(feature = "tracing")]
+    debug!("Parsing env file with {} lines", s.lines().count());
+
     let mut entries = Vec::new();
     let mut pending_comments = Vec::new();
 
     for line in s.lines() {
+      #[cfg(feature = "tracing")]
+      trace!("Parsing line: {:?}", line);
+
       let mut entry: EnvEntry = line.try_into()?;
 
       if let EnvEntry::Variable(ref mut var) = entry {
+        #[cfg(feature = "tracing")]
+        trace!(
+          "Found variable: {} with {} pending comments",
+          var.key,
+          pending_comments.len()
+        );
+
         var.preceding_comments = std::mem::take(&mut pending_comments);
       } else if let EnvEntry::OrphanComment(comment) = entry {
+        #[cfg(feature = "tracing")]
+        trace!("Found comment, adding to pending");
+
         pending_comments.push(comment);
         continue;
       } else if matches!(entry, EnvEntry::EmptyLine) && !pending_comments.is_empty() {
+        #[cfg(feature = "tracing")]
+        trace!(
+          "Empty line with {} pending comments, flushing",
+          pending_comments.len()
+        );
+
         for comment in pending_comments.drain(..) {
           entries.push(EnvEntry::OrphanComment(comment));
         }
@@ -44,6 +69,9 @@ impl<'a> TryFrom<&'a str> for EnvFile<'a> {
     for comment in pending_comments {
       entries.push(EnvEntry::OrphanComment(comment));
     }
+
+    #[cfg(feature = "tracing")]
+    debug!("Parsed {} entries", entries.len());
 
     Ok(Self { entries })
   }
@@ -137,6 +165,9 @@ impl<'a> TryFrom<&'a str> for EnvVariable<'a> {
   type Error = ParseError;
 
   fn try_from(s: &'a str) -> Result<Self, Self::Error> {
+    #[cfg(feature = "tracing")]
+    trace!("Parsing variable from: {:?}", s);
+
     if let Some((key, value_part)) = s.split_once(ASSIGNMENT_OPERATOR) {
       let key = key.trim();
 
@@ -146,6 +177,14 @@ impl<'a> TryFrom<&'a str> for EnvVariable<'a> {
         } else {
           (value_part.trim(), None)
         };
+
+      #[cfg(feature = "tracing")]
+      trace!(
+        "Parsed variable: key={}, value={}, has_inline_comment={}",
+        key,
+        value,
+        inline_comment.is_some()
+      );
 
       Ok(EnvVariable {
         key: Cow::Borrowed(key),
@@ -172,8 +211,14 @@ impl<'a> TryFrom<&'a str> for EnvComment<'a> {
   type Error = ParseError;
 
   fn try_from(s: &'a str) -> Result<Self, Self::Error> {
+    #[cfg(feature = "tracing")]
+    trace!("Parsing comment from: {:?}", s);
+
     let trimmed = s.trim();
     if let Some(content) = trimmed.strip_prefix(COMMENT_PREFIX) {
+      #[cfg(feature = "tracing")]
+      trace!("Parsed comment content: {:?}", content);
+
       Ok(EnvComment(Cow::Borrowed(content)))
     } else {
       Err(ParseError::InvalidLine(s.to_string()))

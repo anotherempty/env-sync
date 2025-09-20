@@ -1,5 +1,8 @@
 use std::path::{Path, PathBuf};
 
+#[cfg(feature = "tracing")]
+use tracing::{debug, info, trace};
+
 use crate::parse::{EnvEntry, EnvFile, ParseError};
 
 const DEFAULT_LOCAL_FILENAME: &str = ".env";
@@ -8,6 +11,9 @@ pub struct EnvSync;
 
 impl EnvSync {
   pub fn sync_with_options(options: EnvSyncOptions) -> Result<(), EnvSyncError> {
+    #[cfg(feature = "tracing")]
+    info!("Starting env sync");
+
     let EnvSyncOptions {
       local_file,
       template_file,
@@ -19,13 +25,20 @@ impl EnvSync {
         .join(DEFAULT_LOCAL_FILENAME)
     });
 
+    #[cfg(feature = "tracing")]
+    debug!(?local_path, ?template_file, "Resolved file paths");
+
     // Create local file if it doesn't exist
     if !local_path.exists() {
+      #[cfg(feature = "tracing")]
+      debug!("Creating local file: {:?}", local_path);
       std::fs::write(&local_path, "").map_err(EnvSyncError::CreateLocal)?;
     }
 
     // Create template file if it doesn't exist
     if !template_file.exists() {
+      #[cfg(feature = "tracing")]
+      debug!("Creating template file: {:?}", template_file);
       std::fs::write(&template_file, "").map_err(EnvSyncError::CreateTemplate)?;
     }
 
@@ -48,22 +61,44 @@ impl EnvSync {
   }
 
   fn sync<'a>(local: EnvFile<'a>, mut template: EnvFile<'a>) -> Result<EnvFile<'a>, EnvSyncError> {
+    #[cfg(feature = "tracing")]
+    debug!(
+      "Starting sync of {} template entries",
+      template.entries.len()
+    );
+
     for entry in &mut template.entries {
       if let EnvEntry::Variable(template_var) = entry
         && let Some(local_var) = local.get(&template_var.key)
       {
+        #[cfg(feature = "tracing")]
+        trace!("Processing variable: {}", template_var.key);
+
         // Copy value if template is empty
         if template_var.value.is_empty() && !local_var.value.is_empty() {
+          #[cfg(feature = "tracing")]
+          trace!(
+            "Copying local value for {}: {}",
+            template_var.key, local_var.value
+          );
           template_var.value = local_var.value.clone();
         }
 
         // Copy inline comment if template doesn't have one
         if template_var.inline_comment.is_none() && local_var.inline_comment.is_some() {
+          #[cfg(feature = "tracing")]
+          trace!("Copying inline comment for {}", template_var.key);
           template_var.inline_comment = local_var.inline_comment.clone();
         }
 
         // Copy preceding comments if template doesn't have any
         if template_var.preceding_comments.is_empty() && !local_var.preceding_comments.is_empty() {
+          #[cfg(feature = "tracing")]
+          trace!(
+            "Copying {} preceding comments for {}",
+            local_var.preceding_comments.len(),
+            template_var.key
+          );
           template_var.preceding_comments = local_var.preceding_comments.clone();
         }
       }
@@ -73,8 +108,15 @@ impl EnvSync {
   }
 
   fn update_local<P: AsRef<Path>>(local: EnvFile, local_path: P) -> Result<(), EnvSyncError> {
+    #[cfg(feature = "tracing")]
+    debug!("Writing synced content to {:?}", local_path.as_ref());
+
     let content = local.to_string();
     std::fs::write(local_path, content).map_err(EnvSyncError::Write)?;
+
+    #[cfg(feature = "tracing")]
+    info!("Sync completed successfully");
+
     Ok(())
   }
 }
