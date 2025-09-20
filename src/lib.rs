@@ -147,6 +147,40 @@ impl<'a> fmt::Display for EnvEntry<'a> {
   }
 }
 
+impl<'a> FromStr for EnvEntry<'a> {
+  type Err = ParseError;
+
+  fn from_str(s: &str) -> Result<Self, Self::Err> {
+    let trimmed = s.trim();
+
+    if trimmed.is_empty() {
+      Ok(EnvEntry::EmptyLine)
+    } else if trimmed.starts_with('#') {
+      Ok(EnvEntry::OrphanComment(Cow::Owned(trimmed.to_string())))
+    } else if let Some(eq_pos) = s.find('=') {
+      let key = s[..eq_pos].trim();
+      let value_part = &s[eq_pos + 1..];
+
+      let (value, inline_comment) = if let Some(hash_pos) = value_part.find('#') {
+        let value = value_part[..hash_pos].trim();
+        let comment = value_part[hash_pos..].trim();
+        (value, Some(Cow::Owned(comment.to_string())))
+      } else {
+        (value_part.trim(), None)
+      };
+
+      Ok(EnvEntry::Variable(EnvVariable {
+        key: Cow::Owned(key.to_string()),
+        value: Cow::Owned(value.to_string()),
+        preceding_comments: Vec::new(),
+        inline_comment,
+      }))
+    } else {
+      Err(ParseError::InvalidLine(s.to_string()))
+    }
+  }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EnvVariable<'a> {
   #[serde(borrow)]
@@ -248,5 +282,48 @@ mod tests {
     // Parse the output again and compare
     let env2: EnvFile = output.parse().unwrap();
     assert_eq!(env, env2);
+  }
+
+  #[test]
+  fn test_env_entry_from_str() {
+    // Test empty line
+    let entry: EnvEntry = "".parse().unwrap();
+    assert_eq!(entry, EnvEntry::EmptyLine);
+
+    // Test comment
+    let entry: EnvEntry = "# This is a comment".parse().unwrap();
+    match entry {
+      EnvEntry::OrphanComment(comment) => assert_eq!(comment, "# This is a comment"),
+      _ => panic!("Expected OrphanComment"),
+    }
+
+    // Test variable
+    let entry: EnvEntry = "KEY=value".parse().unwrap();
+    match entry {
+      EnvEntry::Variable(var) => {
+        assert_eq!(var.key, "KEY");
+        assert_eq!(var.value, "value");
+        assert!(var.preceding_comments.is_empty());
+        assert!(var.inline_comment.is_none());
+      }
+      _ => panic!("Expected Variable"),
+    }
+
+    // Test variable with inline comment
+    let entry: EnvEntry = "KEY=value # comment".parse().unwrap();
+    match entry {
+      EnvEntry::Variable(var) => {
+        assert_eq!(var.key, "KEY");
+        assert_eq!(var.value, "value");
+        assert_eq!(
+          var.inline_comment,
+          Some(Cow::Owned("# comment".to_string()))
+        );
+      }
+      _ => panic!("Expected Variable"),
+    }
+
+    // Test invalid line
+    assert!("invalid line without equals".parse::<EnvEntry>().is_err());
   }
 }
