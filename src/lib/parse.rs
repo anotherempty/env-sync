@@ -1,3 +1,25 @@
+//! Environment file parsing with comment preservation.
+//!
+//! This module provides zero-copy parsing of `.env` files that preserves comments
+//! and associates them with environment variables. Comments can appear before
+//! variables (preceding comments) or on the same line (inline comments).
+//!
+//! # Examples
+//!
+//! ```
+//! use env_sync::parse::EnvFile;
+//! use std::convert::TryFrom;
+//!
+//! let content = r#"
+//! # Database configuration
+//! DB_HOST=localhost
+//! DB_PORT=5432 # Default PostgreSQL port
+//! "#;
+//!
+//! let env_file = EnvFile::try_from(content).unwrap();
+//! println!("{}", env_file);
+//! ```
+
 use std::{borrow::Cow, convert::TryFrom, fmt};
 
 #[cfg(feature = "tracing")]
@@ -6,6 +28,10 @@ use tracing::{debug, trace};
 const COMMENT_PREFIX: &str = "#";
 const ASSIGNMENT_OPERATOR: &str = "=";
 
+/// Represents a parsed environment file with preserved comments.
+///
+/// The `EnvFile` contains a sequence of entries that can be variables,
+/// comments, or empty lines, maintaining the original file structure.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct EnvFile<'a> {
   pub entries: Vec<EnvEntry<'a>>,
@@ -78,6 +104,9 @@ impl<'a> TryFrom<&'a str> for EnvFile<'a> {
 }
 
 impl<'a> EnvFile<'a> {
+  /// Finds an environment variable by its key.
+  ///
+  /// Returns the first variable with the matching key, or `None` if not found.
   pub fn get(&self, key: &str) -> Option<&EnvVariable<'a>> {
     self.entries.iter().find_map(|entry| {
       if let EnvEntry::Variable(var) = entry {
@@ -89,10 +118,14 @@ impl<'a> EnvFile<'a> {
   }
 }
 
+/// Represents a single entry in an environment file.
 #[derive(Debug, Clone, PartialEq)]
 pub enum EnvEntry<'a> {
+  /// A variable assignment with optional comments
   Variable(EnvVariable<'a>),
+  /// A comment not associated with a variable
   OrphanComment(EnvComment<'a>),
+  /// An empty line
   EmptyLine,
 }
 
@@ -129,11 +162,16 @@ impl<'a> TryFrom<&'a str> for EnvEntry<'a> {
   }
 }
 
+/// Represents an environment variable with its value and associated comments.
 #[derive(Debug, Clone, PartialEq)]
 pub struct EnvVariable<'a> {
+  /// The variable name
   pub key: Cow<'a, str>,
+  /// The variable value
   pub value: Cow<'a, str>,
+  /// Comments that appear before this variable
   pub preceding_comments: Vec<EnvComment<'a>>,
+  /// Comment that appears on the same line as the variable
   pub inline_comment: Option<EnvComment<'a>>,
 }
 
@@ -187,6 +225,9 @@ impl<'a> TryFrom<&'a str> for EnvVariable<'a> {
   }
 }
 
+/// Represents a comment in an environment file.
+///
+/// The comment content excludes the leading `#` character.
 #[derive(Debug, Clone, PartialEq)]
 pub struct EnvComment<'a>(Cow<'a, str>);
 
@@ -215,8 +256,10 @@ impl<'a> TryFrom<&'a str> for EnvComment<'a> {
   }
 }
 
+/// Errors that can occur during parsing.
 #[derive(Debug, thiserror::Error)]
 pub enum ParseError {
+  /// A line that cannot be parsed as a variable, comment, or empty line
   #[error("Invalid line: {0}")]
   InvalidLine(String),
 }
