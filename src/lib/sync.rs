@@ -3,7 +3,6 @@ use std::path::{Path, PathBuf};
 use crate::parse::{EnvEntry, EnvFile, ParseError};
 
 const DEFAULT_LOCAL_FILENAME: &str = ".env";
-const DEFAULT_TEMPLATE_FILENAME: &str = ".env.template";
 
 pub struct EnvSync;
 
@@ -19,14 +18,19 @@ impl EnvSync {
         .unwrap_or_else(|_| PathBuf::from("."))
         .join(DEFAULT_LOCAL_FILENAME)
     });
-    let template_path = template_file.unwrap_or_else(|| {
-      std::env::current_dir()
-        .unwrap_or_else(|_| PathBuf::from("."))
-        .join(DEFAULT_TEMPLATE_FILENAME)
-    });
+
+    // Create local file if it doesn't exist
+    if !local_path.exists() {
+      std::fs::write(&local_path, "").map_err(EnvSyncError::CreateLocal)?;
+    }
+
+    // Create template file if it doesn't exist
+    if !template_file.exists() {
+      std::fs::write(&template_file, "").map_err(EnvSyncError::CreateTemplate)?;
+    }
 
     let local_str = std::fs::read_to_string(&local_path).map_err(EnvSyncError::LocalIo)?;
-    let template_str = std::fs::read_to_string(&template_path).map_err(EnvSyncError::TemplateIo)?;
+    let template_str = std::fs::read_to_string(&template_file).map_err(EnvSyncError::TemplateIo)?;
 
     let local_content = local_str
       .as_str()
@@ -47,10 +51,21 @@ impl EnvSync {
     for entry in &mut template.entries {
       if let EnvEntry::Variable(template_var) = entry
         && let Some(local_var) = local.get(&template_var.key)
-        && template_var.value.is_empty()
-        && !local_var.value.is_empty()
       {
-        template_var.value = local_var.value.clone();
+        // Copy value if template is empty
+        if template_var.value.is_empty() && !local_var.value.is_empty() {
+          template_var.value = local_var.value.clone();
+        }
+
+        // Copy inline comment if template doesn't have one
+        if template_var.inline_comment.is_none() && local_var.inline_comment.is_some() {
+          template_var.inline_comment = local_var.inline_comment.clone();
+        }
+
+        // Copy preceding comments if template doesn't have any
+        if template_var.preceding_comments.is_empty() && !local_var.preceding_comments.is_empty() {
+          template_var.preceding_comments = local_var.preceding_comments.clone();
+        }
       }
     }
 
@@ -76,11 +91,15 @@ pub enum EnvSyncError {
   TemplateParse(ParseError),
   #[error("Write error: {0}")]
   Write(std::io::Error),
+  #[error("Failed to create local file: {0}")]
+  CreateLocal(std::io::Error),
+  #[error("Failed to create template file: {0}")]
+  CreateTemplate(std::io::Error),
 }
 
 pub struct EnvSyncOptions {
   pub local_file: Option<PathBuf>,
-  pub template_file: Option<PathBuf>,
+  pub template_file: PathBuf,
 }
 
 #[cfg(test)]
@@ -89,7 +108,7 @@ mod tests {
 
   #[test]
   fn test_sync() {
-    let local_content = "KEY1=value1\nKEY2=value2\nKEY3=";
+    let local_content = "# Comment for KEY1\nKEY1=value1\nKEY2=value2 # inline comment\nKEY3=";
     let template_content = "KEY1=\nKEY2=template_value\nKEY3=template_value3\nKEY4=new_key";
 
     let local: EnvFile = local_content.try_into().unwrap();
@@ -97,8 +116,17 @@ mod tests {
 
     let synced = EnvSync::sync(local, template).unwrap();
 
-    assert_eq!(synced.get("KEY1").unwrap().value, "value1");
-    assert_eq!(synced.get("KEY2").unwrap().value, "template_value");
+    let key1 = synced.get("KEY1").unwrap();
+    assert_eq!(key1.value, "value1");
+    assert_eq!(key1.preceding_comments.len(), 1);
+
+    let key2 = synced.get("KEY2").unwrap();
+    assert_eq!(key2.value, "template_value");
+    assert_eq!(
+      key2.inline_comment.as_ref().unwrap().to_string(),
+      "# inline comment"
+    );
+
     assert_eq!(synced.get("KEY3").unwrap().value, "template_value3");
     assert_eq!(synced.get("KEY4").unwrap().value, "new_key");
   }
