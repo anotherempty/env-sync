@@ -1,4 +1,4 @@
-use std::{borrow::Cow, fmt, str::FromStr};
+use std::{borrow::Cow, convert::TryFrom, fmt};
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
@@ -37,19 +37,19 @@ impl<'de: 'a, 'a> Deserialize<'de> for EnvFile<'a> {
     D: Deserializer<'de>,
   {
     let s = <&'de str>::deserialize(deserializer)?;
-    s.parse().map_err(de::Error::custom)
+    s.try_into().map_err(de::Error::custom)
   }
 }
 
-impl<'a> FromStr for EnvFile<'a> {
-  type Err = ParseError;
+impl<'a> TryFrom<&'a str> for EnvFile<'a> {
+  type Error = ParseError;
 
-  fn from_str(s: &str) -> Result<Self, Self::Err> {
+  fn try_from(s: &'a str) -> Result<Self, Self::Error> {
     let mut entries = Vec::new();
     let mut pending_comments = Vec::new();
 
     for line in s.lines() {
-      let mut entry: EnvEntry = line.parse()?;
+      let mut entry: EnvEntry = line.try_into()?;
 
       if let EnvEntry::Variable(ref mut var) = entry {
         var.preceding_comments = std::mem::take(&mut pending_comments);
@@ -97,18 +97,18 @@ impl<'a> fmt::Display for EnvEntry<'a> {
   }
 }
 
-impl<'a> FromStr for EnvEntry<'a> {
-  type Err = ParseError;
+impl<'a> TryFrom<&'a str> for EnvEntry<'a> {
+  type Error = ParseError;
 
-  fn from_str(s: &str) -> Result<Self, Self::Err> {
+  fn try_from(s: &'a str) -> Result<Self, Self::Error> {
     let trimmed = s.trim();
 
     if trimmed.is_empty() {
       Ok(EnvEntry::EmptyLine)
     } else if trimmed.starts_with(COMMENT_PREFIX) {
-      Ok(EnvEntry::OrphanComment(trimmed.parse()?))
+      Ok(EnvEntry::OrphanComment(trimmed.try_into()?))
     } else {
-      Ok(EnvEntry::Variable(trimmed.parse()?))
+      Ok(EnvEntry::Variable(trimmed.try_into()?))
     }
   }
 }
@@ -130,7 +130,7 @@ impl<'de: 'a, 'a> Deserialize<'de> for EnvEntry<'a> {
     D: Deserializer<'de>,
   {
     let s = <&'de str>::deserialize(deserializer)?;
-    s.parse().map_err(de::Error::custom)
+    s.try_into().map_err(de::Error::custom)
   }
 }
 
@@ -155,26 +155,23 @@ impl<'a> fmt::Display for EnvVariable<'a> {
   }
 }
 
-impl<'a> FromStr for EnvVariable<'a> {
-  type Err = ParseError;
+impl<'a> TryFrom<&'a str> for EnvVariable<'a> {
+  type Error = ParseError;
 
-  fn from_str(s: &str) -> Result<Self, Self::Err> {
+  fn try_from(s: &'a str) -> Result<Self, Self::Error> {
     if let Some((key, value_part)) = s.split_once(ASSIGNMENT_OPERATOR) {
       let key = key.trim();
 
       let (value, inline_comment) =
         if let Some((value, comment)) = value_part.split_once(COMMENT_PREFIX) {
-          (
-            value.trim(),
-            Some(EnvComment(Cow::Owned(comment.to_string()))),
-          )
+          (value.trim(), Some(EnvComment(Cow::Borrowed(comment))))
         } else {
           (value_part.trim(), None)
         };
 
       Ok(EnvVariable {
-        key: Cow::Owned(key.to_string()),
-        value: Cow::Owned(value.to_string()),
+        key: Cow::Borrowed(key),
+        value: Cow::Borrowed(value),
         preceding_comments: Vec::new(),
         inline_comment,
       })
@@ -201,7 +198,7 @@ impl<'de: 'a, 'a> Deserialize<'de> for EnvVariable<'a> {
     D: Deserializer<'de>,
   {
     let s = <&'de str>::deserialize(deserializer)?;
-    s.parse().map_err(de::Error::custom)
+    s.try_into().map_err(de::Error::custom)
   }
 }
 
@@ -214,13 +211,13 @@ impl<'a> fmt::Display for EnvComment<'a> {
   }
 }
 
-impl<'a> FromStr for EnvComment<'a> {
-  type Err = ParseError;
+impl<'a> TryFrom<&'a str> for EnvComment<'a> {
+  type Error = ParseError;
 
-  fn from_str(s: &str) -> Result<Self, Self::Err> {
+  fn try_from(s: &'a str) -> Result<Self, Self::Error> {
     let trimmed = s.trim();
     if let Some(content) = trimmed.strip_prefix(COMMENT_PREFIX) {
-      Ok(EnvComment(Cow::Owned(content.to_string())))
+      Ok(EnvComment(Cow::Borrowed(content)))
     } else {
       Err(ParseError::InvalidLine(s.to_string()))
     }
@@ -240,7 +237,7 @@ mod tests {
   #[test]
   fn test_parse_simple() {
     let input = "KEY=value\nANOTHER=test";
-    let env: EnvFile = input.parse().unwrap();
+    let env: EnvFile = input.try_into().unwrap();
 
     assert_eq!(env.entries.len(), 2);
     match &env.entries[0] {
@@ -262,7 +259,7 @@ mod tests {
   #[test]
   fn test_parse_with_comments() {
     let input = "# This is a comment\nKEY=value\n# Another comment\n# Multi line\nTEST=123";
-    let env: EnvFile = input.parse().unwrap();
+    let env: EnvFile = input.try_into().unwrap();
 
     let mut iter = env.entries.iter();
 
@@ -295,7 +292,7 @@ mod tests {
   #[test]
   fn test_parse_inline_comments() {
     let input = "KEY=value # This is inline\nTEST=123";
-    let env: EnvFile = input.parse().unwrap();
+    let env: EnvFile = input.try_into().unwrap();
 
     match &env.entries[0] {
       EnvEntry::Variable(var) => {
@@ -313,22 +310,22 @@ mod tests {
   #[test]
   fn test_roundtrip() {
     let input = "# Comment\nKEY=value\n\n# Orphan\nTEST=123 # inline";
-    let env: EnvFile = input.parse().unwrap();
+    let env: EnvFile = input.try_into().unwrap();
     let output = env.to_string();
 
     // Parse the output again and compare
-    let env2: EnvFile = output.parse().unwrap();
+    let env2: EnvFile = output.as_str().try_into().unwrap();
     assert_eq!(env, env2);
   }
 
   #[test]
   fn test_env_entry_from_str() {
     // Test empty line
-    let entry: EnvEntry = "".parse().unwrap();
+    let entry: EnvEntry = "".try_into().unwrap();
     assert_eq!(entry, EnvEntry::EmptyLine);
 
     // Test comment
-    let entry: EnvEntry = "# This is a comment".parse().unwrap();
+    let entry: EnvEntry = "# This is a comment".try_into().unwrap();
     match entry {
       EnvEntry::OrphanComment(comment) => assert_eq!(
         comment,
@@ -338,7 +335,7 @@ mod tests {
     }
 
     // Test variable
-    let entry: EnvEntry = "KEY=value".parse().unwrap();
+    let entry: EnvEntry = "KEY=value".try_into().unwrap();
     match entry {
       EnvEntry::Variable(var) => {
         assert_eq!(var.key, "KEY");
@@ -350,7 +347,7 @@ mod tests {
     }
 
     // Test variable with inline comment
-    let entry: EnvEntry = "KEY=value # comment".parse().unwrap();
+    let entry: EnvEntry = "KEY=value # comment".try_into().unwrap();
     match entry {
       EnvEntry::Variable(var) => {
         assert_eq!(var.key, "KEY");
@@ -364,13 +361,13 @@ mod tests {
     }
 
     // Test invalid line
-    assert!("invalid line without equals".parse::<EnvEntry>().is_err());
+    assert!(EnvEntry::try_from("invalid line without equals").is_err());
   }
 
   #[test]
   fn test_key_without_value() {
     // Test key with equals but no value
-    let entry: EnvEntry = "KEY=".parse().unwrap();
+    let entry: EnvEntry = "KEY=".try_into().unwrap();
     match entry {
       EnvEntry::Variable(var) => {
         assert_eq!(var.key, "KEY");
@@ -381,7 +378,7 @@ mod tests {
     }
 
     // Test key with equals and whitespace
-    let entry: EnvEntry = "KEY=   ".parse().unwrap();
+    let entry: EnvEntry = "KEY=   ".try_into().unwrap();
     match entry {
       EnvEntry::Variable(var) => {
         assert_eq!(var.key, "KEY");
