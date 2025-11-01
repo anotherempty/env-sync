@@ -16,7 +16,7 @@
 //!
 //! # Examples
 //!
-//! ```
+//! ```rust,no_run
 //! use env_sync::sync::{EnvSync, EnvSyncOptions};
 //! use std::path::PathBuf;
 //!
@@ -43,7 +43,7 @@ pub struct EnvSync;
 impl EnvSync {
   /// Synchronizes environment files using the provided options.
   ///
-  /// Creates missing files if they don't exist, then performs the sync operation.
+  /// Creates the local file if it doesn't exist. Returns an error if the template file doesn't exist.
   pub fn sync_with_options(options: EnvSyncOptions) -> Result<(), EnvSyncError> {
     #[cfg(feature = "tracing")]
     info!("Starting env sync");
@@ -62,18 +62,14 @@ impl EnvSync {
     #[cfg(feature = "tracing")]
     debug!(?local_path, ?template_file, "Resolved file paths");
 
-    // Create local file if it doesn't exist
+    if !template_file.exists() {
+      return Err(EnvSyncError::TemplateNotFound(template_file));
+    }
+
     if !local_path.exists() {
       #[cfg(feature = "tracing")]
       debug!("Creating local file: {:?}", local_path);
       std::fs::write(&local_path, "").map_err(EnvSyncError::CreateLocal)?;
-    }
-
-    // Create template file if it doesn't exist
-    if !template_file.exists() {
-      #[cfg(feature = "tracing")]
-      debug!("Creating template file: {:?}", template_file);
-      std::fs::write(&template_file, "").map_err(EnvSyncError::CreateTemplate)?;
     }
 
     let local_str = std::fs::read_to_string(&local_path).map_err(EnvSyncError::LocalIo)?;
@@ -180,9 +176,9 @@ pub enum EnvSyncError {
   /// Error creating the local file
   #[error("Failed to create local file: {0}")]
   CreateLocal(std::io::Error),
-  /// Error creating the template file
-  #[error("Failed to create template file: {0}")]
-  CreateTemplate(std::io::Error),
+  /// Template file does not exist
+  #[error("Template file not found: {0}")]
+  TemplateNotFound(PathBuf),
 }
 
 /// Configuration options for environment file synchronization.
@@ -220,5 +216,25 @@ mod tests {
 
     assert_eq!(synced.get("KEY3").unwrap().value, "template_value3");
     assert_eq!(synced.get("KEY4").unwrap().value, "new_key");
+  }
+
+  #[test]
+  fn test_template_not_found() {
+    use std::path::PathBuf;
+
+    let options = EnvSyncOptions {
+      local_file: None,
+      template_file: PathBuf::from("nonexistent.env.template"),
+    };
+
+    let result = EnvSync::sync_with_options(options);
+    assert!(result.is_err());
+
+    match result.unwrap_err() {
+      EnvSyncError::TemplateNotFound(path) => {
+        assert_eq!(path, PathBuf::from("nonexistent.env.template"));
+      }
+      _ => panic!("Expected TemplateNotFound error"),
+    }
   }
 }

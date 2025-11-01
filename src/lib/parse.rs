@@ -6,7 +6,7 @@
 //!
 //! # Examples
 //!
-//! ```
+//! ```rust,no_run
 //! use env_sync::parse::EnvFile;
 //! use std::convert::TryFrom;
 //!

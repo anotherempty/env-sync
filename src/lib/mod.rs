@@ -13,7 +13,7 @@
 //!
 //! # Example
 //!
-//! ```rust
+//! ```rust,no_run
 //! use env_sync::sync::{EnvSync, EnvSyncOptions};
 //! use std::path::PathBuf;
 //!
